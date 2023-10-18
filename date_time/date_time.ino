@@ -3,8 +3,8 @@
 #include <ArduinoJson.h>
 #include <HTTPClient.h>
 
-const char* ssid       = "VETORIAL_20";
-const char* password   = "mavi2001";
+const char* ssid       = "CI3D";
+const char* password   = "7X6>j420";
 
 const char* ntpServer = "br.pool.ntp.org";
 const long  gmtOffset_sec = -(3600 * 3);
@@ -43,7 +43,7 @@ void postDataToServer() {
   
   HTTPClient http;   
     
-  http.begin("http://192.168.2.103:3000/data");  
+  http.begin("https://atech-main-api-dev.onrender.com/api/wearables/insertData");  
   http.addHeader("Content-Type", "application/json");         
     
   StaticJsonDocument<200> doc;
@@ -52,11 +52,18 @@ void postDataToServer() {
 
   // Serial.printf("\nCHIP MAC: %012llx\n", ESP.getEfuseMac());
   
-  obj["physical_id"] = getId();
-  obj["timestamp"] = getDateTime();
-  obj["heartRate"] = 64;
-  obj["spo2"] = 99;
-  obj["temperature"] = 36.5;
+  // create an object
+  JsonObject object = doc.to<JsonObject>();
+  object["physical_id"] = "3ce90e88ba90", //getId();
+  object["timestamp"] = getDateTime();
+  object["heartRate"] = 64;
+  object["temperature"] = 36.5;
+
+  // obj["physical_id"] = getId();
+  // obj["timestamp"] = getDateTime();
+  // obj["heartRate"] = 64;
+  // obj["spo2"] = 99;
+  // obj["temperature"] = 36.5;
     
   String requestBody;
   serializeJson(doc, requestBody);
