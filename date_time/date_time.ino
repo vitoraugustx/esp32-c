@@ -58,12 +58,6 @@ void postDataToServer() {
   object["timestamp"] = getDateTime();
   object["heartRate"] = 64;
   object["temperature"] = 36.5;
-
-  // obj["physical_id"] = getId();
-  // obj["timestamp"] = getDateTime();
-  // obj["heartRate"] = 64;
-  // obj["spo2"] = 99;
-  // obj["temperature"] = 36.5;
     
   String requestBody;
   serializeJson(doc, requestBody);
