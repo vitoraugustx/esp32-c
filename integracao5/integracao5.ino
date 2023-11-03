@@ -54,7 +54,7 @@ void postDataToServer(float temperature, int32_t heartRate, int32_t spo2, float 
   HTTPClient http;   
     
   // http.begin("https://atech-main-api-dev.onrender.com/api/wearables/insertData");  
-  http.begin("http://192.168.2.103:3000/data");
+  http.begin("http://192.168.2.106:3000/data");
   http.addHeader("Content-Type", "application/json");         
   
   StaticJsonDocument<200> doc;
@@ -225,7 +225,7 @@ void loop() {
     }
   }
 
-  delay(2000);  // Ajuste o atraso conforme necessário para a sua aplicação
+  delay(1000);  // Ajuste o atraso conforme necessário para a sua aplicação
 }
 
 bool checkForFinger() {
