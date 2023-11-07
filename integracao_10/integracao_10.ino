@@ -19,8 +19,8 @@ int currentMeasurement = 0; // Índice da medida atual
 int measurementCount = 0;
 int averageHeartRate;
 
-const char* ssid       = "OsirMaxCaroline";
-const char* password   = "a1s2d3f4";
+const char* ssid       = "VETORIAL_20";
+const char* password   = "mavi2001";
 
 const char* ntpServer = "br.pool.ntp.org";
 const long  gmtOffset_sec = -(3600 * 3);
@@ -59,8 +59,8 @@ void postFallToServer(){
   
   HTTPClient http;   
     
-  // http.begin("https://atech-main-api-dev.onrender.com/api/wearables/insertData");  
-  http.begin("http://192.168.8.102:3000/data");
+  http.begin("https://atech-main-api-dev.onrender.com/api/warnings/fall");  
+  // http.begin("http://192.168.8.102:3000/data");
   http.addHeader("Content-Type", "application/json");         
   
   StaticJsonDocument<200> doc;
@@ -73,10 +73,11 @@ void postFallToServer(){
   JsonObject object = doc.to<JsonObject>();
   object["physical_id"] = getId();
   object["timestamp"] = getDateTime();
-  object["event"] = "fall";
+  object["type"] = "Fall";
     
   String requestBody;
   serializeJson(doc, requestBody);
+  Serial.println("JSON: " + requestBody);
     
   int httpResponseCode = http.POST(requestBody);
 
@@ -103,8 +104,8 @@ void postDataToServer(float temperature, int32_t heartRate, int32_t spo2, float 
   
   HTTPClient http;   
     
-  // http.begin("https://atech-main-api-dev.onrender.com/api/wearables/insertData");  
-  http.begin("http://192.168.8.102:3000/data");
+  http.begin("https://atech-main-api-dev.onrender.com/api/wearables/insertData");  
+  // http.begin("http://192.168.8.102:3000/data");
   http.addHeader("Content-Type", "application/json");         
   
   StaticJsonDocument<200> doc;
@@ -119,16 +120,12 @@ void postDataToServer(float temperature, int32_t heartRate, int32_t spo2, float 
   object["timestamp"] = getDateTime();
   object["temperature"] = temperature;
   object["heartRate"] = heartRate;
-  object["spo2"] = spo2;
-  object["accX"] = accX;
-  object["accY"] = accY;
-  object["accZ"] = accZ;
-  object["gyrX"] = gyrX;
-  object["gyrY"] = gyrY;
-  object["gyrZ"] = gyrZ;
+  object["saturation"] = spo2;
     
   String requestBody;
   serializeJson(doc, requestBody);
+
+  Serial.println("JSON: " + requestBody);
     
   int httpResponseCode = http.POST(requestBody);
 
