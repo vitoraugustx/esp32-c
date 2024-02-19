@@ -7,6 +7,7 @@
 
 #include <WiFi.h>
 #include "time.h"
+#include <ESP32Time.h>
 #include <ArduinoJson.h>
 #include <HTTPClient.h>
 
@@ -34,6 +35,8 @@ const char* ntpServer = "br.pool.ntp.org";
 const long  gmtOffset_sec = -(3600 * 3);
 const int   daylightOffset_sec = 0;
 
+ESP32Time rtc(gmtOffset_sec);
+
 BLECharacteristic *pCharacteristic;
 bool deviceConnected = false;
 int txValue = 0;
@@ -45,8 +48,16 @@ class MyServerCallbacks: public BLEServerCallbacks {
 
     void onDisconnect(BLEServer* pServer) {
       deviceConnected = false;
+      pServer->getAdvertising()->start();
     }
 }; 
+
+
+
+// Crie uma lista de objetos JSON
+StaticJsonDocument<50> jsonDocument;
+JsonArray jsonArray = jsonDocument.to<JsonArray>();
+
 
 void setup() {
   Serial.begin(115200);
@@ -54,24 +65,41 @@ void setup() {
     delay(10);
   }
 
-  // connectToWifi();
+  connectToWifi();
+
+  /*---------set with NTP---------------*/
+  configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
+  struct tm timeinfo;
+  if (getLocalTime(&timeinfo)){
+    rtc.setTimeStruct(timeinfo); 
+  }
 
   setUpBluetooth();
 
   //init and get the time
   configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
 
-  if (!mpu.begin()) {
-    Serial.println("Failed to find MPU6050 chip");
-    while (1) {
-      delay(10);
-    }
+   // Adicione objetos à lista de exemplo (substitua por sua própria lógica de adição)
+  for (int i = 0; i < 10; i++) {
+    JsonObject obj = jsonArray.createNestedObject();
+    obj["timestamp"] = getDateTime();
+    obj["id"] = i;
+    obj["value"] = random(100); // Valor aleatório como exemplo
   }
-  mpu.setAccelerometerRange(MPU6050_RANGE_16_G);
-  mpu.setGyroRange(MPU6050_RANGE_250_DEG);
-  mpu.setFilterBandwidth(MPU6050_BAND_21_HZ);
+  
+  // TODO: descomentar
+  // if (!mpu.begin()) {
+  //   Serial.println("Failed to find MPU6050 chip");
+  //   while (1) {
+  //     delay(10);
+  //   }
+  // }
+  // mpu.setAccelerometerRange(MPU6050_RANGE_16_G);
+  // mpu.setGyroRange(MPU6050_RANGE_250_DEG);
+  // mpu.setFilterBandwidth(MPU6050_BAND_21_HZ);
 
-  if (!particleSensor.begin(Wire, I2C_SPEED_FAST)) {
+  // TODO: descomentar
+  /*if (!particleSensor.begin(Wire, I2C_SPEED_FAST)) {
     Serial.println(F("MAX30105 was not found. Please check wiring/power."));
     while (1);
   }
@@ -84,7 +112,7 @@ void setup() {
   int adcRange = 4096; //Define a faixa do ADC como 4096
 
   particleSensor.setup(ledBrightness, sampleAverage, ledMode, sampleRate, pulseWidth, adcRange);
-  particleSensor.enableDIETEMPRDY(); // Enable the temp ready interrupt. This is required.
+  particleSensor.enableDIETEMPRDY(); // Enable the temp ready interrupt. This is required.*/
 }
 
 void loop() {
@@ -99,8 +127,12 @@ void loop() {
 
   float thresholdVerticalAcceleration = 13; // Ajuste esse valor conforme necessário
 
+
   // Verificar se a aceleração total excede o limite
   
+  
+  // TODO: descomentar
+  /*
   if (totalAcceleration > thresholdTotalAcceleration) {
     // Verificar se a aceleração vertical também excede o limite
     if (totalAcceleration > thresholdTotalAcceleration && verticalAcceleration > thresholdVerticalAcceleration) {
@@ -115,8 +147,10 @@ void loop() {
       // Serial.println(totalAcceleration);
     }
   }
-  
+  */ 
 
+  // TODO: descomentar
+  /*
   // Verificar se um dedo está no sensor MAX30105
   bool fingerDetected = checkForFinger();
 
@@ -242,15 +276,54 @@ void loop() {
     Serial.print("\n");
 
     if(validHeartRate && validSPO2) {
-      // postDataToServer(temperature, averageHeartRate, spo2, a.acceleration.x, a.acceleration.y, a.acceleration.z, g.gyro.x, g.gyro.y, g.gyro.z);
-      sendValueViaBluetooth(temperature, averageHeartRate, spo2, a.acceleration.x, a.acceleration.y, a.acceleration.z, g.gyro.x, g.gyro.y, g.gyro.z);
+      postDataToServer(temperature, averageHeartRate, spo2, a.acceleration.x, a.acceleration.y, a.acceleration.z, g.gyro.x, g.gyro.y, g.gyro.z);
     }
   }
 
-  
+  */
 
+
+  gatherData();
+  sendValuesFromListViaBluetooth();
+
+  // sendValueViaBluetooth(32.5, 87, 97, 3.5, 0.5, 4.6, 0.0, 1.2, 3.3);
 
   delay(1000);  // Ajuste o atraso conforme necessário para a sua aplicação
+}
+
+void sendValuesFromListViaBluetooth(){
+  if (deviceConnected) {
+    Serial.println("Sending values via Bluetoot:");
+    for (JsonVariant item : jsonArray) {
+      String requestBody;
+      char jsonString[200];
+      // Serial.print(item);
+
+      // Serialize the JSON object to a string
+      serializeJson(item, jsonString);
+      // serializeJson(doc, requestBody);
+
+      // Set the characteristic value
+      pCharacteristic->setValue(jsonString);
+
+      // Notify the client
+      pCharacteristic->notify();
+      Serial.print("Sent JSON via bluetooth: ");
+      Serial.println(jsonString);
+
+      jsonArray.remove(item.as<int>()); // Remova o objeto da lista após o envio bem sucedido
+      delay(10);
+
+    }
+  }
+}
+
+void gatherData(){
+  JsonObject obj = jsonArray.createNestedObject();
+  obj["timestamp"] = getDateTime();
+  obj["temperature"] = random(35, 37);
+  obj["spo2"] = random(92, 100); // Valor aleatório como exemplo
+  obj["physical_id"] = getId();
 }
 
 bool checkForFinger() {
@@ -268,21 +341,48 @@ bool checkForFinger() {
   }
 }
 
+//connect to WiFi
 void connectToWifi(){
-  //connect to WiFi
-  Serial.printf("Connecting to %s ", ssid);
+  // Serial.printf("Connecting to %s ", ssid);
+  // WiFi.begin(ssid, password);
+  // while (WiFi.status() != WL_CONNECTED) {
+  //   delay(500);
+  //   Serial.print(".");
+  // }
+  // Serial.println(" CONNECTED");
+  wifiSetup();
+  wifiConnect();
+}
+
+void wifiSetup() {
+  WiFi.onEvent(onWiFiEvent);
+}
+
+void wifiConnect() {
   WiFi.begin(ssid, password);
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
+}
+
+void onWiFiEvent(WiFiEvent_t event) {
+  switch (event) {
+    case SYSTEM_EVENT_STA_DISCONNECTED:
+      Serial.println("WiFi begin failed ");
+
+      // try reconnect here (after delay???)
+      delay(60 * 1000);
+      wifiConnect();
+      break;
+
+    case SYSTEM_EVENT_STA_GOT_IP:
+      Serial.println("WiFi begin succeeded ");
+      // Connected successfully
+      break;      
   }
-  Serial.println(" CONNECTED");
 }
 
 void setUpBluetooth(){
   // Create the BLE Device
-  BLEDevice :: setMTU(517);
   BLEDevice :: init("ESP32");
+  BLEDevice :: setMTU(517);
 
   // Create the BLE Server
   BLEServer *pServer = BLEDevice::createServer();
@@ -436,6 +536,9 @@ void sendValueViaBluetooth(float temperature, int32_t heartRate, int32_t spo2, f
 
     StaticJsonDocument<200> doc;
 
+    // Create a JsonArray to hold the documents
+    StaticJsonDocument<400> jsonArray;
+
     JsonObject obj = doc.createNestedObject();
 
     // Serial.printf("\nCHIP MAC: %012llx\n", ESP.getEfuseMac());
@@ -447,12 +550,15 @@ void sendValueViaBluetooth(float temperature, int32_t heartRate, int32_t spo2, f
     object["temperature"] = temperature;
     object["heartRate"] = heartRate;
     object["saturation"] = spo2;
+
+    // Add the documents to the array
+    jsonArray.add(doc);
       
     String requestBody;
     
     // Serialize the JSON object to a string
     char jsonString[200];
-    serializeJson(doc, jsonString);
+    serializeJson(jsonArray, jsonString);
     // serializeJson(doc, requestBody);
 
     // Set the characteristic value
@@ -462,5 +568,6 @@ void sendValueViaBluetooth(float temperature, int32_t heartRate, int32_t spo2, f
     pCharacteristic->notify();
     Serial.print("Sent JSON via bluetooth: ");
     Serial.println(jsonString);
+
   }
 }
