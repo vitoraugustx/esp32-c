@@ -19,8 +19,8 @@ int currentMeasurement = 0; // Índice da medida atual
 int measurementCount = 0;
 int averageHeartRate;
 
-const char* ssid       = "VETORIAL_20";
-const char* password   = "mavi2001";
+const char* ssid       = "VITOR.2G";
+const char* password   = "98121510";
 
 const char* ntpServer = "br.pool.ntp.org";
 const long  gmtOffset_sec = -(3600 * 3);

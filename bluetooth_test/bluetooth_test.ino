@@ -22,18 +22,20 @@
 Adafruit_MPU6050 mpu;
 MAX30105 particleSensor;
 
+const int BLUETOOTH_MAX_BUFFER_SIZE = 60 * 5 /* Número de minutos*/;
+
 const int numMeasurements = 10; // Número de medidas para calcular a média
 int heartRateMeasurements[numMeasurements]; // Array para armazenar as medidas
 int currentMeasurement = 0; // Índice da medida atual
 int measurementCount = 0;
 int averageHeartRate;
 
-const char* ssid       = "VITOR_2.4GHz";
-const char* password   = "98121510";
+const char* ssid       = "VITOR-NOTEBOOK";
+const char* password   = "12345678";
 
 const char* ntpServer = "br.pool.ntp.org";
-const long  gmtOffset_sec = -(3600 * 3);
-const int   daylightOffset_sec = 0;
+const long  gmtOffset_sec = - 1 * 3600;
+const int   daylightOffset_sec = -3600;
 
 ESP32Time rtc(gmtOffset_sec);
 
@@ -75,17 +77,6 @@ void setup() {
   }
 
   setUpBluetooth();
-
-  //init and get the time
-  configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
-
-   // Adicione objetos à lista de exemplo (substitua por sua própria lógica de adição)
-  for (int i = 0; i < 10; i++) {
-    JsonObject obj = jsonArray.createNestedObject();
-    obj["timestamp"] = getDateTime();
-    obj["id"] = i;
-    obj["value"] = random(100); // Valor aleatório como exemplo
-  }
   
   // TODO: descomentar
   // if (!mpu.begin()) {
@@ -293,7 +284,7 @@ void loop() {
 
 void sendValuesFromListViaBluetooth(){
   if (deviceConnected) {
-    Serial.println("Sending values via Bluetoot:");
+    Serial.println("Sending values via Bluetooth:");
     for (JsonVariant item : jsonArray) {
       String requestBody;
       char jsonString[200];
@@ -312,17 +303,20 @@ void sendValuesFromListViaBluetooth(){
       Serial.println(jsonString);
 
       jsonArray.remove(item.as<int>()); // Remova o objeto da lista após o envio bem sucedido
-      delay(10);
 
     }
   }
 }
 
 void gatherData(){
+  if(jsonArray.size() >= BLUETOOTH_MAX_BUFFER_SIZE){
+    jsonArray.remove(0);
+  }
   JsonObject obj = jsonArray.createNestedObject();
   obj["timestamp"] = getDateTime();
   obj["temperature"] = random(35, 37);
-  obj["spo2"] = random(92, 100); // Valor aleatório como exemplo
+  obj["heart_rate"] = random(60, 120);
+  obj["saturation"] = random(92, 100); // Valor aleatório como exemplo
   obj["physical_id"] = getId();
 }
 
@@ -411,10 +405,11 @@ void setUpBluetooth(){
 }
 
 String getDateTime() {
-  struct tm timeinfo;
-  if(!getLocalTime(&timeinfo)){
-    Serial.println("Failed to obtain time");
-  }
+  struct tm timeinfo = rtc.getTimeStruct();
+  // if(!getLocalTime(&timeinfo)){
+  //   Serial.println("Failed to obtain time");
+  //   return "null";
+  // }
   char buffer[30];
   // Obter o tempo atual em milissegundos
   unsigned long current_millis = millis();
