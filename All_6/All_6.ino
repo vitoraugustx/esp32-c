@@ -413,6 +413,13 @@ void getBluetoothName(){
   }
 }
 
+void initEPROM(){
+  if (!EEPROM.begin(EEPROM_SIZE)) {
+    Serial.println("failed to init EEPROM");
+    while(1);
+  }
+}
+
 void writeEEPROM(String data) {
   clearEEPROM(); // Optional: clear EEPROM before writing new data
   int length = data.length();
