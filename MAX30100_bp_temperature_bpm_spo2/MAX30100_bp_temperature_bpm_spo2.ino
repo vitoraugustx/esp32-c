@@ -20,6 +20,9 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "MAX30100_PulseOximeter.h"
 
 #define REPORTING_PERIOD_MS     1000
+#define PRINT_INTERVAL_MS 1000
+unsigned long lastPrintTime = 0;  // Variable to store the time of the last print
+
 
 // PulseOximeter is the higher level interface to the sensor
 // it offers:
@@ -32,6 +35,10 @@ PulseOximeter pox;
 MAX30100 sensor;
 
 uint32_t tsLastReport = 0;
+
+int16_t heartRate;
+int16_t SpO2;
+int pressao_sistolica, pressao_diastolica;
 
 // Callback (registered below) fired when a pulse is detected
 void onBeatDetected()
@@ -69,8 +76,7 @@ void setup()
     pox.setOnBeatDetectedCallback(onBeatDetected);
 }
 
-void loop()
-{
+void loop() {
     // Make sure to call update as fast as possible
     pox.update();
 
@@ -78,54 +84,61 @@ void loop()
     // For both, a value of 0 means "invalid"
     if (millis() - tsLastReport > REPORTING_PERIOD_MS) {
         
-      int16_t heartRate = pox.getHeartRate();
-      int16_t SpO2 = pox.getSpO2();
-  
+      heartRate = pox.getHeartRate();
+      SpO2 = pox.getSpO2();
+
       // Realiza o cálculo da pressão arterial
-      int pressao_sistolica, pressao_diastolica;
+      // int pressao_sistolica, pressao_diastolica;
 
-
+      float temp;
       sensor.startTemperatureSampling();
       if (sensor.isTemperatureReady()) {
-        float temp = sensor.retrieveTemperature();
+        float aux = sensor.retrieveTemperature();
+        if (aux <= 40){
+          temp = aux;
+        }
         Serial.print("Temperature = ");
         Serial.print(temp);
         Serial.print("*C | ");
         Serial.print((temp * 9.0) / 5.0 + 32.0);
         Serial.println("*F");
       }
-
-
-      calcularPressaoArterial(heartRate, SpO2, &pressao_sistolica, &pressao_diastolica);
-
-      // Imprime os resultados
-      Serial.print("Frequência cardíaca: ");
-      Serial.println(heartRate);
-      Serial.print("SpO2: ");
-      Serial.println(SpO2);
-      Serial.print("Pressão sistólica: ");
-      Serial.println(pressao_sistolica);
-      Serial.print("Pressão diastólica: ");
-      Serial.println(pressao_diastolica);
-
-      Serial.println("---------------------------------");
-
       tsLastReport = millis();
+    }
+
+    // Check if it's time to print again
+    if (millis() - lastPrintTime >= PRINT_INTERVAL_MS) {
+        lastPrintTime = millis();  // Update the last print time
+
+        // Call your function to calculate blood pressure
+        calcularPressaoArterial(heartRate, SpO2, &pressao_sistolica, &pressao_diastolica);
+
+        // Print the results
+        Serial.print("Frequência cardíaca: ");
+        Serial.println(heartRate);
+        Serial.print("SpO2: ");
+        Serial.println(SpO2);
+        Serial.print("Pressão sistólica: ");
+        Serial.println(pressao_sistolica);
+        Serial.print("Pressão diastólica: ");
+        Serial.println(pressao_diastolica);
+
+        Serial.println("---------------------------------");
     }
 }
 
 // Função para calcular a pressão arterial
 void calcularPressaoArterial(int16_t heartRate, int16_t SpO2, int *pressao_sistolica, int *pressao_diastolica) {
   // Algoritmo de regressão linear para estimar a pressão arterial sistólica e diastólica
-  
+
   // Coeficientes da regressão linear (baseados em dados empíricos)
   float coef_a = -25.147;
   float coef_b = 1.11;
   float coef_c = 0.613;
-  
+
   // Calcula a pressão arterial sistólica
   *pressao_sistolica = (int)(coef_a + coef_b * SpO2 + coef_c * heartRate);
-  
+
   // Estima a pressão arterial diastólica como 2/3 da pressão arterial sistólica
   *pressao_diastolica = (int)(*pressao_sistolica * 2 / 3);
 }

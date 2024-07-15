@@ -33,7 +33,7 @@ uint32_t tsLastReport = 0;
 // Callback (registered below) fired when a pulse is detected
 void onBeatDetected()
 {
-    Serial.println("Beat!");
+    // Serial.println("Beat!");
 }
 
 void setup()
