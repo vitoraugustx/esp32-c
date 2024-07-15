@@ -14,6 +14,9 @@
 #include <ESP32Time.h>
 #include <ArduinoJson.h>
 
+// Biblioteca para armazenamento de dados na EEPROM
+#include "EEPROM.h"
+
 // Definições de identificação única do Bluetooth
 #define SERVICE_UUID           "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
 #define CHARACTERISTIC_UUID_TX "beb5483e-36e1-4688-b7f5-ea07361b26a8"
@@ -21,7 +24,8 @@
 // Definição do tamanho do Buffer de envio de dados Bluetooth
 const int BLUETOOTH_MAX_BUFFER_SIZE = 60 * 5 /* Número de minutos*/;
 
-#define REPORTING_PERIOD_MS     1000
+// Definição do endereço de memória EEPROM
+#define EEPROM_SIZE 64
 
 int gmtOffset_sec = -10800; 
 ESP32Time rtc(gmtOffset_sec);  // Assuming gmtOffset_sec is defined somewhere
@@ -33,14 +37,16 @@ bool deviceConnected = false;
 int txValue = 0;
 
 class MyServerCallbacks: public BLEServerCallbacks {
-    void onConnect(BLEServer* pServer) {
-      deviceConnected = true;
-    };
+  void onConnect(BLEServer* pServer) {
+    deviceConnected = true;
+    Serial.println("Client connected");
+  };
 
-    void onDisconnect(BLEServer* pServer) {
-      deviceConnected = false;
-      pServer->getAdvertising()->start();
-    }
+  void onDisconnect(BLEServer* pServer) {
+    deviceConnected = false;
+    pServer->getAdvertising()->start();
+    Serial.println("Client disconnected");
+  };
 }; 
 
 Adafruit_MPU6050 mpu;
@@ -78,29 +84,43 @@ float update_predicted_glucose(float bpm, float spo2);
 float thresholdTotalAcceleration = 10.0; // Ajuste esse valor conforme necessário
 float thresholdVerticalAcceleration = 13; // Ajuste esse valor conforme necessário
 
+// Variáveis para armazenar o nome do dispositivo Bluetooth e variáveis de comunicação Serial
+String bluetoothName = "";  // Global string to store the received data
+bool serialDataReceived = false;
 
 void setup() {
-    Serial.begin(9600);
+  Serial.begin(9600);
 
-    setUpBluetooth();
-    // Inicialização do MPU6050
-    if (!mpu.begin()) {
-        Serial.println("Failed to find MPU6050 chip");
-    } else {
-        mpu.setAccelerometerRange(MPU6050_RANGE_16_G);
-        mpu.setGyroRange(MPU6050_RANGE_250_DEG);
-        mpu.setFilterBandwidth(MPU6050_BAND_21_HZ);
-    }
+  // Inicialização da EEPROM
+  initEPROM();
+  // clearEEPROM();
 
-    // Inicialização do sensor MAX30105
-    if(sensor.begin() && sensor.setSamplingRate(kSamplingRate)) { 
-      Serial.println("Sensor initialized");
-      Serial.println(getId());
-    }
-    else {
-      Serial.println("Sensor not found");  
-      while(1);
-    }
+  // Leitura do nome do dispositivo Bluetooth da EEPROM
+  bluetoothName = readEEPROM();
+  if (bluetoothName == "null"){
+    // Se o nome do dispositivo não foi definido, solicita o nome do dispositivo via Serial
+    waitForBluetoothNameFromSerial();
+  }
+
+  setUpBluetooth();
+  // Inicialização do MPU6050
+  if (!mpu.begin()) {
+      Serial.println("Failed to find MPU6050 chip");
+  } else {
+      mpu.setAccelerometerRange(MPU6050_RANGE_16_G);
+      mpu.setGyroRange(MPU6050_RANGE_250_DEG);
+      mpu.setFilterBandwidth(MPU6050_BAND_21_HZ);
+  }
+
+  // Inicialização do sensor MAX30105
+  if(sensor.begin() && sensor.setSamplingRate(kSamplingRate)) { 
+    Serial.println("Sensor initialized");
+    Serial.println(getId());
+  }
+  else {
+    Serial.println("Sensor not found");  
+    while(1);
+  }
  
 }
 
@@ -333,10 +353,10 @@ void loop() {
 }
 
 float update_predicted_glucose(float bpm, float spo2) {
-    // Calcular a glicose predita
-    float new_predicted_glucose = 16714.61 + 0.47 * bpm - 351.045 * spo2 + 1.85 * pow(spo2, 2);
+  // Calcular a glicose predita
+  float new_predicted_glucose = 16714.61 + 0.47 * bpm - 351.045 * spo2 + 1.85 * pow(spo2, 2);
 
-    return new_predicted_glucose;
+  return new_predicted_glucose;
 }
 
 // Leitura da temperatura do sensor MAX30105
@@ -368,9 +388,71 @@ void calcularPressaoArterial(int16_t heartRate, int16_t SpO2, int *pressao_sisto
   *pressao_diastolica = (int)(*pressao_sistolica*2/3);
 }
 
+void waitForBluetoothNameFromSerial(){
+  unsigned long lastSendTime = millis();
+  int sendInterval = 1000; // Intervalo de envio de dados
+
+  // Loop para aguardar o nome do dispositivo via Serial
+  while (!serialDataReceived) {
+    // Chama a função para obter o nome do dispositivo via Serial
+    getBluetoothName();
+
+    
+    if (millis() - lastSendTime > sendInterval) {
+      Serial.println(getId()); // Envia o ID do dispositivo via Serial
+      lastSendTime = millis(); 
+    }
+  }
+}
+
+void getBluetoothName(){
+  if(Serial.available() > 0){
+    bluetoothName = Serial.readStringUntil('\n'); // Lê os dados até o caractere de nova linha
+    serialDataReceived = true;
+    writeEEPROM(bluetoothName);
+  }
+}
+
+void writeEEPROM(String data) {
+  clearEEPROM(); // Optional: clear EEPROM before writing new data
+  int length = data.length();
+
+  for (int i = 0; i < EEPROM_SIZE && i < length; i++) {
+    EEPROM.write(i, data[i]);
+  }
+  EEPROM.commit();
+}
+
+String readEEPROM() {
+  String result = "";
+  bool foundChar = false;
+
+  for (int i = 0; i < EEPROM_SIZE; i++) {
+    byte readValue = EEPROM.read(i);
+
+    if (readValue != 0) {
+      foundChar = true;
+      result += char(readValue);
+    }
+  }
+
+  if (!foundChar) {
+    return "null";
+  }
+
+  return result;
+}
+
+void clearEEPROM() {
+  for (int i = 0; i < EEPROM_SIZE; i++) {
+    EEPROM.write(i, 0);
+  }
+  EEPROM.commit();
+}
+
 void setUpBluetooth(){
   // Create the BLE Device
-  BLEDevice :: init("ESP32");
+  BLEDevice :: init(bluetoothName);
   BLEDevice :: setMTU(517);
 
   // Create the BLE Server
