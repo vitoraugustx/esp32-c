@@ -4,27 +4,36 @@ from Crypto.Cipher import AES
 from Crypto.Util.Padding import unpad
 from base64 import b64decode
 
-aes_key = bytes([0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x61, 0x62, 0x63, 0x64, 0x65, 0x66])
 aes_iv = bytes([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
 
 class NotificationHandler:
-    def __init__(self, aes_key, aes_iv):
+    def __init__(self, aes_iv):
         self.notifications = []
-        self.aes_key = aes_key
+        self.aes_key = None
         self.aes_iv = aes_iv
+        self.first_message_received = False
 
     def handle(self, sender, data):
         try:
-            message = data # self.uncypher(data)
-            # message = data
-            self.notifications.append(message)
-            print(f"Notification from {sender} (Handle: {sender.handle}): {message}")
+            if not self.first_message_received:
+                self.set_key(data)
+                self.first_message_received = True
+                print(f"Key set to: {self.aes_key.hex()}")
+            else:
+                message = self.uncypher(data)
+                self.notifications.append(message)
+                print(f"Encrypted notification from {sender} (Handle: {sender.handle}): {data}")
+                print(f"Decrypted notification from {sender} (Handle: {sender.handle}): {message}")
         except Exception as e:
             print(f"Notification from {sender} (Handle: {sender.handle}): Error: {str(e)}")
 
+    def set_key(self, data):
+        self.aes_key = bytes.fromhex(data.decode('utf-8'))  # Assuming the data contains the key in hex string format
+        print(f"Received key: {self.aes_key.hex()}")
+
     def uncypher(self, data):
         encrypted_message_bytes = b64decode(data)
-        cipher = AES.new(aes_key, AES.MODE_CBC, aes_iv)
+        cipher = AES.new(self.aes_key, AES.MODE_CBC, self.aes_iv)
         decrypted_message_bytes = unpad(cipher.decrypt(encrypted_message_bytes), AES.block_size)
         return decrypted_message_bytes.decode('utf-8')
 
@@ -67,7 +76,7 @@ async def connect_and_listen(target_name, notification_handler):
         print("Target device not found.")
 
 try:
-    notification_handler = NotificationHandler(aes_key, aes_iv)
+    notification_handler = NotificationHandler(aes_iv)
     asyncio.run(connect_and_listen("ESP32", notification_handler))
 
     # Print all notifications received
