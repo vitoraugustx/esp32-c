@@ -12,6 +12,7 @@
 #include <BLE2902.h>
 
 #include <ESP32Time.h>
+#include <TimerEvent.h>
 #include <ArduinoJson.h>
 
 // Biblioteca para armazenamento de dados na EEPROM
@@ -26,6 +27,12 @@
 
 // Definição do tamanho do Buffer de envio de dados Bluetooth
 const int BLUETOOTH_MAX_BUFFER_SIZE = 60 * 5 /* Número de minutos*/;
+
+// Defininição da constante do período de tempo do timer de envio de dados
+const unsigned int BLUETOOTH_COMUNICATION_PERIOD = 5000;
+
+// Definição do timer de envio de dados 
+TimerEvent BleSendTimer;
 
 // Definição do endereço de memória EEPROM
 #define EEPROM_SIZE 64
@@ -55,12 +62,14 @@ class MyServerCallbacks: public BLEServerCallbacks {
   void onConnect(BLEServer* pServer) {
     deviceConnected = true;
     alreadySentKey = false;  // Reset the flag when a new device connects
+    BleSendTimer.enable();
     Serial.println("Client connected");
   };
 
   void onDisconnect(BLEServer* pServer) {
     deviceConnected = false;
     pServer->getAdvertising()->start();
+    BleSendTimer.disable();
     Serial.println("Client disconnected");
   };
 }; 
@@ -102,6 +111,10 @@ float thresholdVerticalAcceleration = 13; // Ajuste esse valor conforme necessá
 
 void setup() {
   Serial.begin(115200);
+
+  // Seta o timer para envio de dados BLE
+  BleSendTimer.set(BLUETOOTH_COMUNICATION_PERIOD, sendValuesFromListViaBluetooth);
+  BleSendTimer.disable();
 
   // Inicialização da EEPROM
   initEPROM();
@@ -229,6 +242,9 @@ void sendValuesFromListViaBluetooth() {
 }
 
 void loop() {
+
+  // Mantém o timer ativo e o atualiza
+  BleSendTimer.update();
 
   // Verifica se o dispositivo está conectado e se a chave já foi enviada
   if (deviceConnected && !alreadySentKey) {
@@ -360,7 +376,7 @@ void loop() {
                 // Limpa o contador e envia os dados, incluindo a glicose prevista
                 gatherData(temperatura, avg_bpm, avg_spo2, pressao_sistolica, pressao_diastolica, predicted_glucose);
                 
-                sendValuesFromListViaBluetooth();
+                // sendValuesFromListViaBluetooth();
 
                 // Reiniciar contagem das medidas
                 measure_counter = 0;
@@ -369,7 +385,7 @@ void loop() {
                 // Continua acumulando dados sem a glicose
                 gatherData(temperatura, bpm, spo2, pressao_sistolica, pressao_diastolica);
                 
-                sendValuesFromListViaBluetooth();
+                // sendValuesFromListViaBluetooth();
               }
             } 
 
