@@ -97,11 +97,17 @@ const bool kEnableAveraging = false;
 const int kAveragingSamples = 5;
 const int kSampleThreshold = 5;
 
+// Definições das variáveis de medidas vitais
 int pressao_sistolica, pressao_diastolica;
 
 float bpm_values[10];
 float spo2_values[10];
 int measure_counter = 0;
+
+float avg_bpm;
+float avg_spo2;
+float temperatura;
+float predicted_glucose;
 
 float update_predicted_glucose(float bpm, float spo2);
 
@@ -185,23 +191,23 @@ long crossed_time = 0;
 
 
 void gatherData(float temp, int16_t heartRate, int16_t spo2, int bpSys, int bpDia, float predictedGlucose = -1) {
-    if(jsonArray.size() >= BLUETOOTH_MAX_BUFFER_SIZE) {
-      jsonArray.remove(0);
-    }
-    JsonObject obj = jsonArray.createNestedObject();
-    obj["temperature"] = temp;
-    obj["heartRate"] = heartRate;
-    obj["saturation"] = spo2;
-    obj["sysPressure"] = bpSys;
-    obj["diaPressure"] = bpDia;
-    obj["physical_id"] = getId();
-    if (predictedGlucose != -1) {  // Somente adiciona a glicose se ela foi calculada
-      obj["predictedGlucose"] = predictedGlucose;
-    }
+  if(jsonArray.size() >= BLUETOOTH_MAX_BUFFER_SIZE) {
+    jsonArray.remove(0);
+  }
+  JsonObject obj = jsonArray.createNestedObject();
+  obj["temperature"] = temp;
+  obj["heartRate"] = heartRate;
+  obj["saturation"] = spo2;
+  obj["sysPressure"] = bpSys;
+  obj["diaPressure"] = bpDia;
+  obj["physical_id"] = getId();
+  obj["predictedGlucose"] = predictedGlucose;
+    
 }
 
 
 void sendValuesFromListViaBluetooth() {
+  gatherData(temperatura, avg_bpm, avg_spo2, pressao_sistolica, pressao_diastolica, predicted_glucose);
   if (deviceConnected) {
     Serial.println("Sending values via Bluetooth:");
     for (JsonVariant item : jsonArray) {
@@ -336,12 +342,16 @@ void loop() {
           float r = rred/rir;
           float spo2 = kSpO2_A * r * r + kSpO2_B * r + kSpO2_C;
           
-          
           if (bpm > 50 && bpm < 250) {
             // Armazenar valores de bpm e spo2 nas últimas 10 medidas
             bpm_values[measure_counter % 10] = bpm;
             spo2_values[measure_counter % 10] = spo2;
             measure_counter++;
+
+            // Adquire o valor da temperatura
+            Serial.print("Temperatura: ");
+            Serial.println(tempCelsius());
+            temperatura = tempCelsius();
 
             // Se já foram feitas 10 medidas, calcular predicted_glucose
             if (measure_counter >= 10) {
@@ -351,18 +361,13 @@ void loop() {
                     sum_bpm += bpm_values[i];
                     sum_spo2 += spo2_values[i];
                 }
-                float avg_bpm = sum_bpm / 10;
+                avg_bpm = sum_bpm / 10;
                 float avg_spo2 = sum_spo2 / 10;
 
-                float predicted_glucose = update_predicted_glucose(avg_bpm, avg_spo2);
+                predicted_glucose = update_predicted_glucose(avg_bpm, avg_spo2);
                 // Printar o valor da glicose predita
                 Serial.print("Predicted glucose: ");
                 Serial.println(predicted_glucose);
-
-                // Printar o valor da temperatura
-                Serial.print("Temperatura: ");
-                Serial.println(tempCelsius());
-                float temperatura = tempCelsius();
 
                 // Call your function to calculate blood pressure
                 calcularPressaoArterial(avg_bpm, avg_spo2, &pressao_sistolica, &pressao_diastolica);
@@ -374,19 +379,12 @@ void loop() {
                 Serial.println(pressao_diastolica);
                 
                 // Limpa o contador e envia os dados, incluindo a glicose prevista
-                gatherData(temperatura, avg_bpm, avg_spo2, pressao_sistolica, pressao_diastolica, predicted_glucose);
-                
+                // gatherData(temperatura, avg_bpm, avg_spo2, pressao_sistolica, pressao_diastolica, predicted_glucose);
                 // sendValuesFromListViaBluetooth();
-
+                
                 // Reiniciar contagem das medidas
                 measure_counter = 0;
-              } else {
-                float temperatura = tempCelsius();
-                // Continua acumulando dados sem a glicose
-                gatherData(temperatura, bpm, spo2, pressao_sistolica, pressao_diastolica);
-                
-                // sendValuesFromListViaBluetooth();
-              }
+              } 
             } 
 
           
