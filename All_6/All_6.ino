@@ -167,9 +167,8 @@ void gatherData(float temp, int16_t heartRate, int16_t spo2, int bpSys, int bpDi
     obj["sysPressure"] = bpSys;
     obj["diaPressure"] = bpDia;
     obj["physical_id"] = getId();
-    if (predictedGlucose != -1) {  // Somente adiciona a glicose se ela foi calculada
-      obj["predictedGlucose"] = predictedGlucose;
-    }
+    obj["predictedGlucose"] = predictedGlucose;
+    
 }
 
 
