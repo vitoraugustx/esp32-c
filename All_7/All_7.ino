@@ -12,10 +12,14 @@
 #include <BLE2902.h>
 
 #include <ESP32Time.h>
+#include <TimerEvent.h>
 #include <ArduinoJson.h>
 
 // Biblioteca para armazenamento de dados na EEPROM
 #include "EEPROM.h"
+
+// Biblioteca para criptografia
+#include <AESLib.h>
 
 // Definições de identificação única do Bluetooth
 #define SERVICE_UUID           "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
@@ -24,27 +28,48 @@
 // Definição do tamanho do Buffer de envio de dados Bluetooth
 const int BLUETOOTH_MAX_BUFFER_SIZE = 60 * 5 /* Número de minutos*/;
 
+// Defininição da constante do período de tempo do timer de envio de dados
+const unsigned int BLUETOOTH_COMUNICATION_PERIOD = 5000;
+
+// Definição do timer de envio de dados 
+TimerEvent BleSendTimer;
+
 // Definição do endereço de memória EEPROM
 #define EEPROM_SIZE 64
 
+// Variáveis de criptografia
+char cleartext[512] = {0};
+char ciphertext[1024];
+byte aes_key[16]; // 16-byte (128-bit) AES key
+// General initialization vector (use your own IVs in production for full security!!!)
+byte aes_iv[N_BLOCK] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+AESLib aesLib;
+
+// Variáveis para armazenar o nome do dispositivo Bluetooth e variáveis de comunicação Serial
+String bluetoothName = "";  // Global string to store the received data
+bool serialDataReceived = false;
+bool deviceConnected = false;
+bool alreadySentKey = false;
+
 int gmtOffset_sec = -10800; 
-ESP32Time rtc(gmtOffset_sec);  // Assuming gmtOffset_sec is defined somewhere
+ESP32Time rtc(gmtOffset_sec);
 StaticJsonDocument<50> jsonDocument;
 JsonArray jsonArray = jsonDocument.to<JsonArray>();
 
 BLECharacteristic *pCharacteristic;
-bool deviceConnected = false;
-int txValue = 0;
 
 class MyServerCallbacks: public BLEServerCallbacks {
   void onConnect(BLEServer* pServer) {
     deviceConnected = true;
+    alreadySentKey = false;  // Reset the flag when a new device connects
+    BleSendTimer.enable();
     Serial.println("Client connected");
   };
 
   void onDisconnect(BLEServer* pServer) {
     deviceConnected = false;
     pServer->getAdvertising()->start();
+    BleSendTimer.disable();
     Serial.println("Client disconnected");
   };
 }; 
@@ -72,11 +97,17 @@ const bool kEnableAveraging = false;
 const int kAveragingSamples = 5;
 const int kSampleThreshold = 5;
 
+// Definições das variáveis de medidas vitais
 int pressao_sistolica, pressao_diastolica;
 
 float bpm_values[10];
 float spo2_values[10];
 int measure_counter = 0;
+
+float avg_bpm;
+float avg_spo2;
+float temperatura;
+float predicted_glucose;
 
 float update_predicted_glucose(float bpm, float spo2);
 
@@ -84,16 +115,19 @@ float update_predicted_glucose(float bpm, float spo2);
 float thresholdTotalAcceleration = 10.0; // Ajuste esse valor conforme necessário
 float thresholdVerticalAcceleration = 13; // Ajuste esse valor conforme necessário
 
-// Variáveis para armazenar o nome do dispositivo Bluetooth e variáveis de comunicação Serial
-String bluetoothName = "";  // Global string to store the received data
-bool serialDataReceived = false;
-
 void setup() {
   Serial.begin(115200);
+
+  // Seta o timer para envio de dados BLE
+  BleSendTimer.set(BLUETOOTH_COMUNICATION_PERIOD, sendValuesFromListViaBluetooth);
+  BleSendTimer.disable();
 
   // Inicialização da EEPROM
   initEPROM();
   // clearEEPROM();
+
+  // Setando o padding do AES (criptografia)
+  aesLib.set_paddingmode(paddingMode::CMS);
 
   // Leitura do nome do dispositivo Bluetooth da EEPROM
   bluetoothName = readEEPROM();
@@ -157,36 +191,50 @@ long crossed_time = 0;
 
 
 void gatherData(float temp, int16_t heartRate, int16_t spo2, int bpSys, int bpDia, float predictedGlucose = -1) {
-    if(jsonArray.size() >= BLUETOOTH_MAX_BUFFER_SIZE) {
-      jsonArray.remove(0);
-    }
-    JsonObject obj = jsonArray.createNestedObject();
-    obj["temperature"] = temp;
-    obj["heartRate"] = heartRate;
-    obj["saturation"] = spo2;
-    obj["sysPressure"] = bpSys;
-    obj["diaPressure"] = bpDia;
-    obj["physical_id"] = getId();
-    if (predictedGlucose != -1) {  // Somente adiciona a glicose se ela foi calculada
-      obj["predictedGlucose"] = predictedGlucose;
-    }
+  if(jsonArray.size() >= BLUETOOTH_MAX_BUFFER_SIZE) {
+    jsonArray.remove(0);
+  }
+  JsonObject obj = jsonArray.createNestedObject();
+  obj["temperature"] = temp;
+  obj["heartRate"] = heartRate;
+  obj["saturation"] = spo2;
+  obj["sysPressure"] = bpSys;
+  obj["diaPressure"] = bpDia;
+  obj["physical_id"] = getId();
+  obj["predictedGlucose"] = predictedGlucose;
+    
 }
 
 
 void sendValuesFromListViaBluetooth() {
+  gatherData(temperatura, avg_bpm, avg_spo2, pressao_sistolica, pressao_diastolica, predicted_glucose);
   if (deviceConnected) {
     Serial.println("Sending values via Bluetooth:");
     for (JsonVariant item : jsonArray) {
       String requestBody;
       char jsonString[200];
-      // Serial.print(item);
 
       // Serialize the JSON object to a string
       serializeJson(item, jsonString);
-      // serializeJson(doc, requestBody);
+
+      // Encripta o JSON
+      sprintf(cleartext, jsonString);
+      Serial.print("Original string: ");
+      Serial.println(cleartext);
+
+      byte enc_iv[N_BLOCK] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }; // iv_block is written, provide your own new copy...
+      String encrypted_data = encrypt_impl(cleartext, enc_iv);
+      sprintf(ciphertext, "%s", encrypted_data.c_str());
+      Serial.print("Encrypted data: ");
+      Serial.println(encrypted_data);
+
+      byte dec_iv[N_BLOCK] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }; // iv_block is written, provide your own new copy...
+      String decrypted = decrypt_impl(ciphertext, dec_iv);
+      // Serial.print("Decrypted data: ");
+      // Serial.println(decrypted);
 
       // Set the characteristic value
-      pCharacteristic->setValue(jsonString);
+      pCharacteristic->setValue(ciphertext);
 
       // Notify the client
       pCharacteristic->notify();
@@ -200,6 +248,16 @@ void sendValuesFromListViaBluetooth() {
 }
 
 void loop() {
+
+  // Mantém o timer ativo e o atualiza
+  BleSendTimer.update();
+
+  // Verifica se o dispositivo está conectado e se a chave já foi enviada
+  if (deviceConnected && !alreadySentKey) {
+    generateKey();
+    sendKeyOnce();
+  }
+
   // Leitura e cálculo da aceleração usando MPU6050
   sensors_event_t a, g, temp;
   mpu.getEvent(&a, &g, &temp);
@@ -284,12 +342,16 @@ void loop() {
           float r = rred/rir;
           float spo2 = kSpO2_A * r * r + kSpO2_B * r + kSpO2_C;
           
-          
           if (bpm > 50 && bpm < 250) {
             // Armazenar valores de bpm e spo2 nas últimas 10 medidas
             bpm_values[measure_counter % 10] = bpm;
             spo2_values[measure_counter % 10] = spo2;
             measure_counter++;
+
+            // Adquire o valor da temperatura
+            Serial.print("Temperatura: ");
+            Serial.println(tempCelsius());
+            temperatura = tempCelsius();
 
             // Se já foram feitas 10 medidas, calcular predicted_glucose
             if (measure_counter >= 10) {
@@ -299,18 +361,13 @@ void loop() {
                     sum_bpm += bpm_values[i];
                     sum_spo2 += spo2_values[i];
                 }
-                float avg_bpm = sum_bpm / 10;
+                avg_bpm = sum_bpm / 10;
                 float avg_spo2 = sum_spo2 / 10;
 
-                float predicted_glucose = update_predicted_glucose(avg_bpm, avg_spo2);
+                predicted_glucose = update_predicted_glucose(avg_bpm, avg_spo2);
                 // Printar o valor da glicose predita
                 Serial.print("Predicted glucose: ");
                 Serial.println(predicted_glucose);
-
-                // Printar o valor da temperatura
-                Serial.print("Temperatura: ");
-                Serial.println(tempCelsius());
-                float temperatura = tempCelsius();
 
                 // Call your function to calculate blood pressure
                 calcularPressaoArterial(avg_bpm, avg_spo2, &pressao_sistolica, &pressao_diastolica);
@@ -322,19 +379,12 @@ void loop() {
                 Serial.println(pressao_diastolica);
                 
                 // Limpa o contador e envia os dados, incluindo a glicose prevista
-                gatherData(temperatura, avg_bpm, avg_spo2, pressao_sistolica, pressao_diastolica, predicted_glucose);
+                // gatherData(temperatura, avg_bpm, avg_spo2, pressao_sistolica, pressao_diastolica, predicted_glucose);
+                // sendValuesFromListViaBluetooth();
                 
-                sendValuesFromListViaBluetooth();
-
                 // Reiniciar contagem das medidas
                 measure_counter = 0;
-              } else {
-                float temperatura = tempCelsius();
-                // Continua acumulando dados sem a glicose
-                gatherData(temperatura, bpm, spo2, pressao_sistolica, pressao_diastolica);
-                
-                sendValuesFromListViaBluetooth();
-              }
+              } 
             } 
 
           
@@ -455,6 +505,51 @@ void clearEEPROM() {
     EEPROM.write(i, 0);
   }
   EEPROM.commit();
+}
+
+void generateKey(){
+  // Generate a random AES key
+  for (int i = 0; i < sizeof(aes_key); i++) {
+    aes_key[i] = random(0, 256);
+  }
+}
+
+void sendKeyOnce() {
+  delay(5000);
+  // Convert AES key byte array to hexadecimal string
+  char hexKey[sizeof(aes_key) * 2 + 1];
+  for (int i = 0; i < sizeof(aes_key); i++) {
+    sprintf(hexKey + 2 * i, "%02X", aes_key[i]);
+  }
+  hexKey[sizeof(aes_key) * 2] = '\0'; // Null-terminate the string
+
+  // Debugging: Print the AES key in hex before sending
+  Serial.print("Sending AES key: ");
+  Serial.println(hexKey);
+
+  // Set the characteristic value to the hex key string
+  pCharacteristic->setValue(hexKey);
+
+  // Notify the connected client
+  pCharacteristic->notify();
+  Serial.println("Sent value via Bluetooth");
+
+  // Set the flag to true to ensure this is only sent once
+  alreadySentKey = true;
+}
+
+String encrypt_impl(char * msg, byte iv[]) {
+  int msgLen = strlen(msg);
+  char encrypted[2 * msgLen] = {0};
+  aesLib.encrypt64((const byte*)msg, msgLen, encrypted, aes_key, sizeof(aes_key), iv);
+  return String(encrypted);
+}
+
+String decrypt_impl(char * msg, byte iv[]) {
+  int msgLen = strlen(msg);
+  char decrypted[msgLen] = {0}; // Half may be enough
+  aesLib.decrypt64(msg, msgLen, (byte*)decrypted, aes_key, sizeof(aes_key), iv);
+  return String(decrypted);
 }
 
 void setUpBluetooth(){
