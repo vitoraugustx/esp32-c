@@ -65,7 +65,7 @@ const float kEdgeThreshold = -2000.0;
 
 // Filters
 const float kLowPassCutoff = 5.0;
-const float kHighPassCutoff = 0.5;
+const float kHighPassCutoff = 1.0;
 
 // Averaging
 const bool kEnableAveraging = false;
@@ -282,13 +282,24 @@ void loop() {
           float rir = (stat_ir.maximum()-stat_ir.minimum())/stat_ir.average();
           float r = rred/rir;
           float spo2 = kSpO2_A * r * r + kSpO2_B * r + kSpO2_C;
+
+
+          Serial.print("bpm: ");
+          Serial.print(bpm);
+          Serial.print("  spo2: ");
+          Serial.println(spo2);
+
           
-          
-          if (bpm > 50 && bpm < 250) {
+          if (bpm > 50 && bpm < 200 && spo2 > 85 && spo2 <= 100) {
             // Armazenar valores de bpm e spo2 nas últimas 10 medidas
             bpm_values[measure_counter % 10] = bpm;
             spo2_values[measure_counter % 10] = spo2;
             measure_counter++;
+
+            Serial.print("PIF bpm: ");
+            Serial.print(bpm);
+            Serial.print("  PIF spo2: ");
+            Serial.println(spo2);
 
             // Se já foram feitas 10 medidas, calcular predicted_glucose
             if (measure_counter >= 10) {
@@ -300,6 +311,11 @@ void loop() {
                 }
                 float avg_bpm = sum_bpm / 10;
                 float avg_spo2 = sum_spo2 / 10;
+
+                Serial.print("avg_bpm: ");
+                Serial.println(avg_bpm);
+                Serial.print("avg_spo2: ");
+                Serial.println(avg_spo2);
 
                 float predicted_glucose = update_predicted_glucose(avg_bpm, avg_spo2);
                 // Printar o valor da glicose predita
@@ -352,17 +368,22 @@ void loop() {
 }
 
 float update_predicted_glucose(float bpm, float spo2) {
-  // Calcular a glicose predita
-  float new_predicted_glucose = 16714.61 + 0.47 * bpm - 351.045 * spo2 + 1.85 * pow(spo2, 2);
+    // Calcular a glicose predita
+    float new_predicted_glucose = -494.23133217811767 
+                                + (7.686066281779009 * bpm) 
+                                + (5.668788197282953 * spo2) 
+                                + (0.006448777577223952 * pow(bpm, 2)) 
+                                + (-0.09730249584572759 * bpm * spo2) 
+                                + (0.015323542439047877 * pow(spo2, 2));
 
-  return new_predicted_glucose;
+    return new_predicted_glucose;
 }
 
 // Leitura da temperatura do sensor MAX30105
 float tempCelsius(){
 
   float temperature = sensor.readTemperature();  // Leitura original do sensor
-  float correcao = 4.2;  // Valor a ser subtraído para corrigir a leitura
+  float correcao = 0;  // Valor a ser subtraído para corrigir a leitura
 
   // Aplicar a correção
   temperature += correcao;
