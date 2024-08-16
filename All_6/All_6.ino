@@ -4,6 +4,7 @@
 #include <Adafruit_MPU6050.h>
 #include <Adafruit_Sensor.h>
 #include <Wire.h>
+#include <math.h>
 
 // Bibliotecas para comunicação BLE
 #include <BLEDevice.h>
@@ -302,15 +303,21 @@ void loop() {
             Serial.println(spo2);
 
             // Se já foram feitas 10 medidas, calcular predicted_glucose
-            if (measure_counter >= 10) {
+            if (measure_counter >= 20) {
+                int size = 20;
+
+                // Substituir outliers pela média
+                replace_outliers_with_mean(bpm_values, size);
+                replace_outliers_with_mean(spo2_values, size);
+
                 float sum_bpm = 0;
                 float sum_spo2 = 0;
-                for (int i = 0; i < 10; i++) {
+                for (int i = 0; i < 20; i++) {
                     sum_bpm += bpm_values[i];
                     sum_spo2 += spo2_values[i];
                 }
-                float avg_bpm = sum_bpm / 10;
-                float avg_spo2 = sum_spo2 / 10;
+                float avg_bpm = sum_bpm / 20;
+                float avg_spo2 = sum_spo2 / 20;
 
                 Serial.print("avg_bpm: ");
                 Serial.println(avg_bpm);
@@ -519,4 +526,33 @@ String getId() {
     }
   }
   return macStr;
+}
+
+void replace_outliers_with_mean(float list[], int size) {
+    int i;
+    double sum = 0, mean, variance = 0, stddev;
+
+    // Calcular a média
+    for (i = 0; i < size; i++) {
+        sum += list[i];
+    }
+    mean = sum / size;
+
+    // Calcular a variância
+    for (i = 0; i < size; i++) {
+        variance += pow(list[i] - mean, 2);
+    }
+    variance /= size;
+    stddev = sqrt(variance);
+
+    // Calcular os limites para outliers (2 desvios padrão da média)
+    double lower_bound = mean - 2 * stddev;
+    double upper_bound = mean + 2 * stddev;
+
+    // Substituir outliers pela média
+    for (i = 0; i < size; i++) {
+        if (list[i] < lower_bound || list[i] > upper_bound) {
+            list[i] = (float)mean;
+        }
+    }
 }
