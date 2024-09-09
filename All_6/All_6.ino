@@ -157,7 +157,7 @@ bool crossed = false;
 long crossed_time = 0;
 
 
-void gatherData(float temp, int16_t heartRate, int16_t spo2, int bpSys, int bpDia, float predictedGlucose = -1) {
+void gatherData(float temp, int16_t heartRate, int16_t spo2, int bpSys = -1, int bpDia = -1, float predictedGlucose = -1) {
     if(jsonArray.size() >= BLUETOOTH_MAX_BUFFER_SIZE) {
       jsonArray.remove(0);
     }
@@ -172,6 +172,19 @@ void gatherData(float temp, int16_t heartRate, int16_t spo2, int bpSys, int bpDi
     
 }
 
+void gatherDataMPU(float accX, float accY, float accZ, float gyroX, float gyroY, float gyroZ) {
+    if(jsonArray.size() >= BLUETOOTH_MAX_BUFFER_SIZE) {
+      jsonArray.remove(0);
+    }
+    JsonObject obj = jsonArray.createNestedObject();
+    obj["Acceleration X"] = accX;
+    obj["Acceleration Y"] = accY;
+    obj["Acceleration Z"] = accZ;
+    obj["Gyro X"] = gyroX;
+    obj["Gyro Y"] = gyroY;
+    obj["Gyro Z"] = gyroZ;
+    obj["physical_id"] = getId();
+}
 
 void sendValuesFromListViaBluetooth() {
   if (deviceConnected) {
@@ -204,25 +217,8 @@ void loop() {
   sensors_event_t a, g, temp;
   mpu.getEvent(&a, &g, &temp);
 
-  // Calcular a aceleração total
-  float totalAcceleration = sqrt(a.acceleration.x * a.acceleration.x + a.acceleration.y * a.acceleration.y + a.acceleration.z * a.acceleration.z);
-  float verticalAcceleration = a.acceleration.z;
+  
 
-  float thresholdTotalAcceleration = 10.0; // Ajuste esse valor conforme necessário
-
-  float thresholdVerticalAcceleration = 13; // Ajuste esse valor conforme necessário
-
-  // Detecção de movimento e queda
-  if (totalAcceleration > thresholdTotalAcceleration) {
-    if (totalAcceleration > thresholdTotalAcceleration && verticalAcceleration > thresholdVerticalAcceleration) {
-      // Queda detectada
-      //Serial.println("Queda detectada!");
-      // Movimento detectado
-      //Serial.println("Movimento detectado");
-    } else if (0 < totalAcceleration && totalAcceleration < thresholdTotalAcceleration) {
-      // Código para situação de aceleração normal ou não detectada como movimento/queda
-    }
-  }
   auto sample = sensor.readSample(1000);
   float current_value_red = sample.red;
   float current_value_ir = sample.ir;
@@ -302,62 +298,74 @@ void loop() {
             Serial.print("  PIF spo2: ");
             Serial.println(spo2);
 
+            //float temperatura = tempCelsius();
+            //gatherData(temperatura, bpm, spo2);
+
             // Se já foram feitas 10 medidas, calcular predicted_glucose
-            if (measure_counter >= 20) {
-                int size = 20;
+            if (measure_counter >= 10) {
+              int size = 10;
 
-                // Substituir outliers pela média
-                replace_outliers_with_mean(bpm_values, size);
-                replace_outliers_with_mean(spo2_values, size);
+              // Substituir outliers pela média
+              replace_outliers_with_mean(bpm_values, size);
+              replace_outliers_with_mean(spo2_values, size);
 
-                float sum_bpm = 0;
-                float sum_spo2 = 0;
-                for (int i = 0; i < 20; i++) {
-                    sum_bpm += bpm_values[i];
-                    sum_spo2 += spo2_values[i];
-                }
-                float avg_bpm = sum_bpm / 20;
-                float avg_spo2 = sum_spo2 / 20;
+              float sum_bpm = 0;
+              float sum_spo2 = 0;
+              for (int i = 0; i < 10; i++) {
+                  sum_bpm += bpm_values[i];
+                  sum_spo2 += spo2_values[i];
+              }
+              float avg_bpm = sum_bpm / 10;
+              float avg_spo2 = sum_spo2 / 10;
 
-                Serial.print("avg_bpm: ");
-                Serial.println(avg_bpm);
-                Serial.print("avg_spo2: ");
-                Serial.println(avg_spo2);
+              Serial.print("avg_bpm: ");
+              Serial.println(avg_bpm);
+              Serial.print("avg_spo2: ");
+              Serial.println(avg_spo2);
 
-                float predicted_glucose = update_predicted_glucose(avg_bpm, avg_spo2);
-                // Printar o valor da glicose predita
-                Serial.print("Predicted glucose: ");
-                Serial.println(predicted_glucose);
+              float predicted_glucose = update_predicted_glucose(avg_bpm, avg_spo2);
+              // Printar o valor da glicose predita
+              Serial.print("Predicted glucose: ");
+              Serial.println(predicted_glucose);
 
-                // Printar o valor da temperatura
-                Serial.print("Temperatura: ");
-                Serial.println(tempCelsius());
-                float temperatura = tempCelsius();
+              // Printar o valor da temperatura
+              Serial.print("Temperatura: ");
+              Serial.println(tempCelsius());
+              float temperatura = tempCelsius();
 
-                // Call your function to calculate blood pressure
-                calcularPressaoArterial(avg_bpm, avg_spo2, &pressao_sistolica, &pressao_diastolica);
+              // Call your function to calculate blood pressure
+              calcularPressaoArterial(avg_bpm, avg_spo2, &pressao_sistolica, &pressao_diastolica);
 
-                // Printar o valor da pressão arterial
-                Serial.print("Pressão sistolica: ");
-                Serial.println(pressao_sistolica);
-                Serial.print("Pressão diastolica: ");
-                Serial.println(pressao_diastolica);
+              // Printar o valor da pressão arterial
+              Serial.print("Pressão sistolica: ");
+              Serial.println(pressao_sistolica);
+              Serial.print("Pressão diastolica: ");
+              Serial.println(pressao_diastolica);
                 
                 // Limpa o contador e envia os dados, incluindo a glicose prevista
-                gatherData(temperatura, avg_bpm, avg_spo2, pressao_sistolica, pressao_diastolica, predicted_glucose);
+              gatherData(temperatura, avg_bpm, avg_spo2, pressao_sistolica, pressao_diastolica, predicted_glucose);
                 
-                sendValuesFromListViaBluetooth();
+              sendValuesFromListViaBluetooth();
 
-                // Reiniciar contagem das medidas
-                measure_counter = 0;
-              } else {
-                float temperatura = tempCelsius();
-                // Continua acumulando dados sem a glicose
-                gatherData(temperatura, bpm, spo2, pressao_sistolica, pressao_diastolica);
+              // Reiniciar contagem das medidas
+              measure_counter = 0;
+            } else {
+
+              Serial.print("bpm Livre: ");
+              Serial.print(bpm);
+              Serial.print("Spo2 Livre: ");
+              Serial.println(spo2);
+
+              float temperatura = tempCelsius();
+              //gatherData(temperatura, bpm, spo2);
+              gatherDataMPU(a.acceleration.x, a.acceleration.y, a.acceleration.z, g.gyro.x, g.gyro.y, g.gyro.z);
                 
-                sendValuesFromListViaBluetooth();
-              }
-            } 
+                // Continua acumulando dados sem a glicose
+                //gatherData(temperatura, bpm, spo2, pressao_sistolica, pressao_diastolica);
+                
+              sendValuesFromListViaBluetooth();
+            }
+          } 
 
           
           // Reset statistic
